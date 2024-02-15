@@ -16,6 +16,10 @@ Before using this code, it is recommended to consult with a qualified profession
 ### Prerequisites
 Before we proceed, we should install a couple of things. Also, if you are using a Windows machine, it's recommended to use WSL2.
 
+- **Dependency Installation**: Install dependencies using package managers like `apt` or `brew`. Ensure that all dependencies are pinned to specific versions to maintain consistency and prevent unexpected behavior due to updates.
+- **Secure Configuration**: When configuring local nodes or wallets, ensure that sensitive information such as API keys or cryptographic keys is securely stored and managed. Avoid hardcoding sensitive information directly into configuration files or scripts.
+
+
 On Ubuntu/Debian/WSL2(Ubuntu):
 ```
 sudo apt update
@@ -169,6 +173,14 @@ After the contract is published we need to extract some object ids from the outp
 - `BASE_COIN_TYPE` - the type of the SUI coin, default to `0x2::sui::SUI`
 - `QUOTE_COIN_TYPE` - the type of the quote coin that we deployed for the sake of this tutorial. The coin is `WBTC` in the `wbtc` module in the `$PACKAGE_ID` package. So the value will look like this: `<PACKAGE_ID>::wbtc::WBTC`
 - `WBTC_TREASURY_CAP_ID` it's the treasury cap id that is needed for token mint operations. In the publish output you should look for the object with `objectType` `0x2::coin::TreasuryCap<$PACKAGE_ID::wbtc::WBTC>` (replace `$PACKAGE_ID` with the actual package id) and this object also has `objectId` - that's the value that we are looking for.
+
+### Security Measures
+To enhance security when setting up and using this codebase, consider the following measures:
+
+- **Code Audit**: Conduct a comprehensive security audit of the codebase to identify and mitigate potential vulnerabilities. Engage with security professionals or perform internal audits to ensure the integrity and security of your system.
+- **Input Validation**: Implement robust input validation mechanisms to prevent injection attacks, buffer overflows, or other security vulnerabilities arising from malicious user input. Validate and sanitize all user-provided data before processing.
+- **Secure Communication**: Use secure communication protocols such as HTTPS when interacting with external services or APIs. Encrypt sensitive data during transmission to protect it from eavesdropping or interception.
+
 
 ## Interact with the contract
 
