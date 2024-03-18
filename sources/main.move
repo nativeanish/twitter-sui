@@ -1,119 +1,86 @@
-module Twitter {
+module twitter::main {
+    use sui::object::{Self, UID};
+    use sui::transfer;
+    use sui::tx_context::{TxContext, sender};
+    use sui::coin::{Self, Coin, CoinMetadata};
+    use sui::balance::{Self, Balance};
+    use sui::sui::{SUI};
+    use sui::clock::{Self, Clock, timestamp_ms};
 
-    struct Profile {
-        id: u64,
-        username: string,
-        email: string,
-        bio: string,
+    use std::option::{Self, Option};
+    use std::vector::{Self};
+    use std::string::{Self, String};
+
+    const ERROR_NOT_OWNER: u64 = 0;
+    const ERROR_ALREADY_TWITTED: u64 = 0;
+
+    struct Profile has key, store  {
+        id: UID,
+        owner: address,
+        username: String,
+        email: String,
+        bio: String,
         created_at: u64,
+        tweets: vector<Tweet>
     }
 
-    struct Tweet {
-        id: u64,
+    struct Tweet has copy, drop, store {
         user_id: u64,
-        content: string,
+        content: String,
         created_at: u64,
         edited_at: Option<u64>, // Use Option type for edited_at
-        likes: Vec<u64>, // Use Vec for likes
+        likers: vector<address>,
+        likes_count: u64, // Use Vec for likes
         retweet_count: u64, // Track retweet count
     }
 
-    pub vector<Profile> profiles;
-    pub vector<Tweet> tweets;
 
-    pub fun create_profile(username: string, email: string, bio: string, created_at: u64) -> Option<u64> {
-        if profiles.iter().any(|profile| profile.username == username || profile.email == email) {
-            return None; // Username or email already exists
-        }
-
-        let user_id = profiles.len() as u64;
-        let new_profile = Profile {
-            id: user_id,
+    public fun new_profile(username: String, email: String, bio: String, created_at: u64, ctx: &mut TxContext)  {
+        // create new profile 
+        let profile = Profile {
+            id: object::new(ctx),
+            owner: sender(ctx),
             username,
             email,
             bio,
             created_at,
+            tweets: vector::empty()
         };
+        transfer::share_object(profile);
+     }
 
-        profiles.push(new_profile);
-        Some(user_id)
-    }
+    public fun create_tweet(self: &mut Profile, user_id: u64, content: String, clock: &Clock, ctx: &mut TxContext) {
+        assert!(sender(ctx) == self.owner, ERROR_NOT_OWNER);
 
-    pub fun authenticate_user(username: string, email: string) -> Option<u64> {
-        profiles.iter().find_map(|profile| {
-            if profile.username == username && profile.email == email {
-                Some(profile.id)
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fun create_tweet(user_id: u64, content: string, created_at: u64) -> Option<u64> {
-        let user_exists = profiles.get(user_id as usize).is_some();
-        if !user_exists {
-            return None; // User not found
-        }
-
-        let tweet_id = tweets.len() as u64;
-        let new_tweet = Tweet {
-            id: tweet_id,
-            user_id,
-            content,
-            created_at,
-            edited_at: None,
-            likes: Vec::new(),
+        let tweet = Tweet {
+            user_id: user_id,
+            content: content,
+            created_at: timestamp_ms(clock),
+            edited_at: option::none(),
+            likers: vector::empty(),
+            likes_count: 0,
             retweet_count: 0,
         };
-
-        tweets.push(new_tweet);
-        Some(tweet_id)
+        vector::push_back(&mut self.tweets, tweet);
     }
 
-    pub fun edit_tweet(tweet_id: u64, user_id: u64, content: string, edited_at: u64) -> bool {
-        tweets.get_mut(tweet_id as usize).map_or(false, |tweet| {
-            if tweet.user_id == user_id {
-                tweet.content = content;
-                tweet.edited_at = Some(edited_at);
-                true
-            } else {
-                false
-            }
-        })
+    public fun edit_tweet(self: &mut Profile, index: u64, _id: u64, user_id: u64, content: String, clock: &Clock)  {
+        let tweet = vector::borrow_mut(&mut self.tweets, index);
+        tweet.user_id = user_id;
+        tweet.content = content;
+        option::fill(&mut tweet.edited_at, timestamp_ms(clock));
     }
 
-    pub fun delete_tweet(tweet_id: u64, user_id: u64) -> bool {
-        tweets.iter().position(|tweet| tweet.id == tweet_id && tweet.user_id == user_id).map_or(false, |index| {
-            tweets.remove(index);
-            true
-        })
+    public fun delete_tweet(self: &mut Profile, index: u64, ctx: &mut TxContext) {
+        assert!(self.owner == sender(ctx), ERROR_NOT_OWNER);
+        vector::remove(&mut self.tweets, index);
     }
 
-    pub fun like_tweet(tweet_id: u64, user_id: u64) -> bool {
-        tweets.iter_mut().find(|tweet| tweet.id == tweet_id).map_or(false, |tweet| {
-            if !tweet.likes.contains(&user_id) {
-                tweet.likes.push(user_id);
-                true
-            } else {
-                false
-            }
-        })
+    public fun like_tweet(self: &mut Profile, index: u64, ctx: &mut TxContext) {
+        let tweet = vector::borrow_mut(&mut self.tweets, index);
+        assert!(!vector::contains<address>(&tweet.likers, &sender(ctx)), ERROR_ALREADY_TWITTED);
+        tweet.likes_count = tweet.likes_count + 1;
+        vector::push_back(&mut tweet.likers, sender(ctx));
     }
-
-    pub fun retweet(tweet_id: u64, user_id: u64, created_at: u64) -> Option<u64> {
-        let original_tweet = tweets.get(tweet_id as usize)?;
-        let retweet_id = create_tweet(user_id, original_tweet.content.clone(), created_at)?;
-
-        let retweet_index = retweet_id as usize;
-        if let Some(retweet) = tweets.get_mut(retweet_index) {
-            retweet.retweet_count += 1;
-        }
-
-        Some(retweet_id)
-    }
-
-    pub fun delete_account(user_id: u64) {
-        profiles.retain(|profile| profile.id != user_id);
-        tweets.retain(|tweet| tweet.user_id != user_id);
-    }
+    
 }
