@@ -1,6 +1,3 @@
-
-#[allow(lint(self_transfer))]
-
 /// Microfinance module for managing savings accounts, loans, and lending pools.
 module microfinance::microfinance {
     // Import necessary modules and types from the SUI framework and standard library.
@@ -10,129 +7,105 @@ module microfinance::microfinance {
     use sui::transfer;
     use sui::sui::SUI;
     use std::vector;
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context::{Self, TxContext, sender};
 
-    // Define error codes for common operations.
-    const E_INSUFFICIENT_FUNDS: u64 = 1; // Insufficient funds for a loan or repayment.
-    const E_LOAN_ALREADY_EXISTS: u64 = 2; // A loan already exists for the borrower.
-    const E_NO_LOAN_FOUND: u64 = 3; // No loan found for the specified ID.
+    use microfinance::usdt::{Self, CapWrapper, USDT};
+
+    // === Errors ===
+
+    const ENotEnoughBalance: u64 = 0;
+    const EBorrowAmountIsTooHigh: u64 = 1;
+    const EAccountMustBeEmpty: u64 = 2;
+    const EPayYourLoan: u64 = 3;
+    const ENotOwner: u64 = 4;
+
+    // === Constants ===
+
+    const EXCHANGE_RATE: u128 = 40;
 
     // Define structs for various entities in the microfinance system.
 
     /// Represents a borrower's account, including their balance and active loans.
-    struct BorrowerAccount has key, store {
+    struct Account has key, store {
         id: UID, // Unique identifier for the account.
         owner: address, // Address of the account owner.
-        balance: Balance<SUI>, // Current balance of the account.
-        active_loans: vector<UID>, // IDs of active loans.
-    }
-
-    /// Represents a lender's account, including their balance.
-    struct LenderAccount has key, store {
-        id: UID, // Unique identifier for the account.
-        owner: address, // Address of the account owner.
-        balance: Balance<SUI>, // Current balance of the account.
+        debt: u64, // Current balance of the account.
+        balance: u64,
     }
 
     /// Represents the lending pool, including total funds and outstanding loans.
     struct LendingPool has key, store {
         id: UID, // Unique identifier for the lending pool.
-        total_funds: Balance<SUI>, // Total funds available in the lending pool.
+        balance: Balance<SUI>, // Total funds available in the lending pool.
         loans_outstanding: vector<UID>, // IDs of outstanding loans.
-    }
-
-    /// Represents a savings account, including the owner and balance.
-    struct SavingsAccount has key, store {
-        id: UID, // Unique identifier for the savings account.
-        owner: address, // Address of the account owner.
-        balance: Balance<SUI>, // Current balance of the savings account.
-    }
-
-    /// Represents a loan, including the borrower, amount, and repayment status.
-    struct Loan has key, store {
-        id: UID, // Unique identifier for the loan.
-        borrower: address, // Address of the borrower.
-        amount: u64, // Amount of the loan.
-        repaid: bool, // Whether the loan has been repaid.
     }
 
     // Functions for creating and managing accounts and loans.
 
     /// Creates a new borrower account with an initial balance of zero.
-    public fun create_borrower_account(ctx: &mut TxContext) {
-        let account = BorrowerAccount {
+    public fun new_account(ctx: &mut TxContext) {
+        let account = Account {
             id: object::new(ctx),
             owner: tx_context::sender(ctx),
-            balance: balance::zero(),
-            active_loans: vector::empty(),
+            debt: 0,
+            balance: 0,
         };
-        transfer::share_object(account);
-    }
-
-    /// Creates a new lender account with an initial balance of zero.
-    public fun create_lender_account(ctx: &mut TxContext) {
-        let account = LenderAccount {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            balance: balance::zero(),
-        };
-        transfer::share_object(account);
+        transfer::public_transfer(account, sender(ctx));
     }
 
     /// Initializes a new lending pool with a specified initial amount.
-    public fun initialize_lending_pool(ctx: &mut TxContext, initial_amount: u64) {
+    public fun new_pool(ctx: &mut TxContext) {
         let pool = LendingPool {
             id: object::new(ctx),
-            total_funds: balance::zero(),
+            balance: balance::zero(),
             loans_outstanding: vector::empty(),
         };
         transfer::share_object(pool);
     }
 
     /// Deposits funds into the lending pool from a lender's account.
-    public fun deposit_to_pool(lender_account: &mut LenderAccount, amount: Coin<SUI>, pool: &mut LendingPool, ctx: &mut TxContext) {
-        let deposit_balance = sui::coin::into_balance(amount);
-        balance::join(&mut pool.total_funds, deposit_balance);
-        
+    public fun deposit(account: &mut Account, pool: &mut LendingPool, amount: Coin<SUI>) {
+        let deposit_balance = coin::into_balance<SUI>(amount);
+        let amount = balance::value(&deposit_balance);
+        // add sui to pool
+        balance::join(&mut pool.balance, deposit_balance); 
+        // increase the user balance 
+        account.balance = account.balance + amount;
     }
 
-    /// Initializes a new savings account with an initial balance of zero.
-    public fun create_savings_account(ctx: &mut TxContext) {
-        let account = SavingsAccount {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            balance: balance::zero(),
-        };
-        transfer::share_object(account);
-    }
+    // withdraw sui coin from the pool
+    public fun withdraw(self: &mut LendingPool, account: &mut Account, value: u64, ctx: &mut TxContext): Coin<SUI> {
+        assert!(sender(ctx) == account.owner, ENotOwner);
+        assert!(account.debt == 0, EPayYourLoan);
+        assert!(account.balance >= value, ENotEnoughBalance);
 
-    /// Deposits funds into a savings account.
-    public fun deposit(account: &mut SavingsAccount, amount: Coin<SUI>, ctx: &mut TxContext) {
-        let deposit_balance = sui::coin::into_balance(amount); 
-        balance::join(&mut account.balance, deposit_balance);
-    }
+        account.balance = account.balance - value;
 
-    /// Borrows funds from the microfinance system.
-    public fun borrow(ctx: &mut TxContext, amount: u64) {
-        let loan = Loan {
-            id: object::new(ctx),
-            borrower: tx_context::sender(ctx),
-            amount,
-            repaid: false,
-        };
-        transfer::share_object(loan);
-    }
+        coin::from_balance(balance::split(&mut self.balance, value), ctx)
+    } 
+    // borrow stabil coin from pool
+    public fun borrow(account: &mut Account, cap: &mut CapWrapper, value: u64, ctx: &mut TxContext): Coin<USDT> {
+        assert!(sender(ctx) == account.owner, ENotOwner);
+        let max_borrow_amount = (((account.balance as u128) * EXCHANGE_RATE / 100) as u64);
 
-    /// Repays a loan.
-    public fun repay_loan(loan: &mut Loan, amount: &Coin<SUI>, ctx: &mut TxContext) {
-        assert!(coin::value(amount) >= loan.amount, E_INSUFFICIENT_FUNDS);
-        loan.repaid = true;
-        
-    }
+        assert!(max_borrow_amount >= account.debt + value, EBorrowAmountIsTooHigh);
 
-    /// Checks the balance of a savings account.
-    public fun check_balance(account: &SavingsAccount): u64 {
-        balance::value(&account.balance)
+        account.debt = account.debt + value;
+        usdt::mint(cap, value, ctx)
     }
+    // pay your debt to withdraw SUI
+    public fun repay(account: &mut Account, cap: &mut CapWrapper, coin_in: Coin<USDT>) {
+
+        let amount = usdt::burn(cap, coin_in);
+
+        account.debt = account.debt - amount;
+    } 
+    // destroy your account 
+    public fun destroy_empty_account(account: Account, ctx: &mut TxContext) {
+        assert!(sender(ctx) == account.owner, ENotOwner);
+        let Account { id, owner: _,debt ,  balance: _} = account;
+        assert!(debt == 0, EAccountMustBeEmpty);
+        object::delete(id);
+    }
+ 
 }
-
