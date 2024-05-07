@@ -1,21 +1,21 @@
-**Food Chain System Smart Contract Overview**
+## Car Booking System Smart Contract Overview
 
-The "food_chain_system" module is a smart contract written in the Move programming language, designed to facilitate a decentralized food chain system. It introduces functionalities for managing products, consumers, complaints, and dispute resolutions within the food supply chain. Below is a detailed documentation of its components, purpose, features, setup, and interaction.
+The "car_booking" module is a smart contract written in the Move programming language, designed to facilitate decentralized car booking and rental services. It provides functionalities for managing car companies, customers, car bookings, and financial transactions within the system. Below is a detailed documentation of its components, purpose, features, setup, and interaction.
 
-**Purpose:**
-The primary purpose of the "food_chain_system" module is to establish a transparent and efficient food supply chain system on a decentralized platform. It aims to ensure trust, fairness, and accountability among suppliers and consumers by providing mechanisms for product listing, ordering, complaints filing, and dispute resolution.
+## Purpose:
+The primary purpose of the "car_booking" module is to establish a decentralized platform for booking and renting cars, enabling efficient and transparent transactions between car companies and customers. It aims to streamline the process of car booking, payment, and ownership transfer while ensuring trust and security in the system.
 
-**Features:**
-1. **Product Management:** Suppliers can create new products for sale, specifying attributes such as description, quality, price, and duration. Consumers can view and order available products.
-2. **Consumer Management:** Suppliers can add consumers with specific requirements for products, enabling targeted marketing and personalized offerings.
-3. **Order Handling:** Consumers can place orders for products, and suppliers can choose consumers to fulfill orders and process payments.
-4. **Complaints Handling:** Consumers can file complaints against suppliers for issues such as product quality or non-delivery within the specified deadline.
-5. **Dispute Resolution:** An admin or arbitrator can resolve disputes between consumers and suppliers, ensuring fair outcomes and appropriate actions.
+## Features:
+1. **Car Company Management:** Car companies can register and manage their fleets by adding cars, setting rental prices, and tracking booking memos.
+2. **Customer Management:** Customers can register and manage their accounts, including adding funds, booking cars, and returning cars.
+3. **Car Booking:** Customers can book available cars from registered car companies, specifying rental periods and making payments.
+4. **Financial Transactions:** The system facilitates financial transactions between customers and car companies, ensuring timely payments and balance management.
+5. **Ownership Transfer:** Car ownership can be transferred from car companies to customers upon successful booking and rental completion.
 
-**Setup:**
+## Setup:
 The setup process involves installing necessary dependencies, configuring local networks, minting tokens, and deploying the smart contract. It includes steps such as installing Rust and Cargo, setting up SUI binaries, running a local network, configuring SUI Wallet (optional), and interacting with the contract via command-line interface (CLI).
 
-**Interaction:**
-After setting up the environment and deploying the smart contract, users can interact with it through various CLI commands. These commands include creating new products, adding consumers, placing orders, filing complaints, and resolving disputes. Each interaction follows a specific protocol, involving parameters such as product IDs, descriptions, quantities, and timestamps.
+## Interaction:
+After setting up the environment and deploying the smart contract, users can interact with it through various CLI commands. These commands include creating new car companies, registering customers, adding cars to the fleet, booking cars, processing payments, and transferring car ownership. Each interaction follows a specific protocol, involving parameters such as company IDs, customer IDs, car IDs, rental fees, and timestamps.
 
-Overall, the "food_chain_system" smart contract module provides a robust framework for establishing and managing a decentralized food supply chain system. It promotes transparency, fairness, and accountability while ensuring the smooth flow of products from suppliers to consumers.
+Overall, the "car_booking" smart contract module provides a robust framework for establishing and managing a decentralized car booking and rental system. It promotes efficiency, transparency, and security in car transactions while offering convenience and flexibility to both car companies and customers.
