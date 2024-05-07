@@ -1,222 +1,252 @@
-/*
-Disclaimer: Use of Unaudited Code for Educational Purposes Only
-This code is provided strictly for educational purposes and has not undergone any formal security audit. 
-It may contain errors, vulnerabilities, or other issues that could pose risks to the integrity of your system or data.
+#[allow(unused_use)]
+module car_booking::car_booking {
 
-By using this code, you acknowledge and agree that:
-    - No Warranty: The code is provided "as is" without any warranty of any kind, either express or implied. The entire risk as to the quality and performance of the code is with you.
-    - Educational Use Only: This code is intended solely for educational and learning purposes. It is not intended for use in any mission-critical or production systems.
-    - No Liability: In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the use or performance of this code.
-    - Security Risks: The code may not have been tested for security vulnerabilities. It is your responsibility to conduct a thorough security review before using this code in any sensitive or production environment.
-    - No Support: The authors of this code may not provide any support, assistance, or updates. You are using the code at your own risk and discretion.
-
-Before using this code, it is recommended to consult with a qualified professional and perform a comprehensive security assessment. By proceeding to use this code, you agree to assume all associated risks and responsibilities.
-*/
-
-#[lint_allow(self_transfer)]
-module dacade_deepbook::book {
-    use deepbook::clob_v2 as deepbook;
-    use deepbook::custodian_v2 as custodian;
+    // Imports
+    use sui::transfer;
     use sui::sui::SUI;
-    use sui::tx_context::{TxContext, Self};
-    use sui::coin::{Coin, Self};
-    use sui::balance::{Self};
-    use sui::transfer::Self;
-    use sui::clock::Clock;
+    use std::string::{Self, String};
+    use sui::coin::{Self, Coin};
+    use sui::clock::{Self, Clock};
+    use sui::object::{Self, UID, ID};
+    use sui::balance::{Self, Balance};
+    use sui::tx_context::{Self, TxContext};
+    use sui::table::{Self, Table};
 
-    const FLOAT_SCALING: u64 = 1_000_000_000;
+    // Errors
+    const EInsufficientFunds: u64 = 1;
+    const EInvalidCoin: u64 = 2;
+    const ENotCustomer: u64 = 3;
+    const EInvalidCar: u64 = 4;
+    const ENotCompany: u64 = 5;
+    const EInvalidCarBooking: u64 = 6;
 
+    // CarBooking Company 
 
-    public fun new_pool<Base, Quote>(payment: &mut Coin<SUI>, ctx: &mut TxContext) {
-        let balance = coin::balance_mut(payment);
-        let fee = balance::split(balance, 100 * 1_000_000_000);
-        let coin = coin::from_balance(fee, ctx);
-
-        deepbook::create_pool<Base, Quote>(
-            1 * FLOAT_SCALING,
-            1,
-            coin,
-            ctx
-        );
+    struct CarCompany has key {
+        id: UID,
+        name: String,
+        car_prices: Table<ID, u64>, // car_id -> price
+        balance: Balance<SUI>,
+        memos: Table<ID, CarMemo>, // car_id -> memo
+        company: address
     }
 
-    public fun new_custodian_account(ctx: &mut TxContext) {
-        transfer::public_transfer(deepbook::create_account(ctx), tx_context::sender(ctx))
+    // Customer
+
+    struct Customer has key {
+        id: UID,
+        name: String,
+        customer: address,
+        company_id: ID,
+        balance: Balance<SUI>,
     }
 
-    public fun make_base_deposit<Base, Quote>(pool: &mut deepbook::Pool<Base, Quote>, coin: Coin<Base>, account_cap: &custodian::AccountCap) {
-        deepbook::deposit_base(pool, coin, account_cap)
+    // CarMemo
+
+    struct CarMemo has key, store {
+        id: UID,
+        car_id: ID,
+        rental_fee: u64,
+        company: address 
     }
 
-    public fun make_quote_deposit<Base, Quote>(pool: &mut deepbook::Pool<Base, Quote>, coin: Coin<Quote>, account_cap: &custodian::AccountCap) {
-        deepbook::deposit_quote(pool, coin, account_cap)
+    // Car
+
+    struct Car has key {
+        id: UID,
+        name: String,
+        car_type : String,
+        company: address,
+        available: bool,
     }
 
-    public fun withdraw_base<BaseAsset, QuoteAsset>(
-        pool: &mut deepbook::Pool<BaseAsset, QuoteAsset>,
-        quantity: u64,
-        account_cap: &custodian::AccountCap,
+    // Record of Car Booking
+
+    struct BookingRecord has key, store {
+        id: UID,
+        customer_id: ID,
+        car_id: ID,
+        customer: address,
+        company: address,
+        paid_fee: u64,
+        rental_fee: u64,
+        booking_time: u64
+    }
+
+    // Create a new CarCompany object 
+
+    public fun create_company(ctx:&mut TxContext, name: String) {
+        let company = CarCompany {
+            id: object::new(ctx),
+            name: name,
+            car_prices: table::new<ID, u64>(ctx),
+            balance: balance::zero<SUI>(),
+            memos: table::new<ID, CarMemo>(ctx),
+            company: tx_context::sender(ctx)
+        };
+
+        transfer::share_object(company);
+    }
+
+    // Create a new Customer object
+
+    public fun create_customer(ctx:&mut TxContext, name: String, company_address: address) {
+        let company_id_: ID = object::id_from_address(company_address);
+        let customer = Customer {
+            id: object::new(ctx),
+            name: name,
+            customer: tx_context::sender(ctx),
+            company_id: company_id_,
+            balance: balance::zero<SUI>(),
+        };
+
+        transfer::share_object(customer);
+    }
+
+    // create a memo for a car
+
+    public fun create_car_memo(
+        company: &mut CarCompany,
+        rental_fee: u64,
+        car_name: String,
+        car_type: String,
         ctx: &mut TxContext
-    ) {
-        let base = deepbook::withdraw_base(pool, quantity, account_cap, ctx);
-        transfer::public_transfer(base, tx_context::sender(ctx));
+    ): Car {
+        assert!(company.company == tx_context::sender(ctx), ENotCompany);
+        let car = Car {
+            id: object::new(ctx),
+            name: car_name,
+            car_type: car_type,
+            company: company.company,
+            available: true
+        };
+        let memo = CarMemo {
+            id: object::new(ctx),
+            car_id: object::uid_to_inner(&car.id),
+            rental_fee: rental_fee,
+            company: company.company
+        };
+
+        table::add<ID, CarMemo>(&mut company.memos, object::uid_to_inner(&car.id), memo);
+
+        car
     }
 
-    public fun withdraw_quote<BaseAsset, QuoteAsset>(
-        pool: &mut deepbook::Pool<BaseAsset, QuoteAsset>,
-        quantity: u64,
-        account_cap: &custodian::AccountCap,
-        ctx: &mut TxContext
-    ) {
-        let quote = deepbook::withdraw_quote(pool, quantity, account_cap, ctx);
-        transfer::public_transfer(quote, tx_context::sender(ctx));
-    }
+    // Book a car
 
-    public fun place_limit_order<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        client_order_id: u64,
-        price: u64, 
-        quantity: u64, 
-        self_matching_prevention: u8,
-        is_bid: bool,
-        expire_timestamp: u64,
-        restriction: u8,
-        clock: &Clock,
-        account_cap: &custodian::AccountCap,
-        ctx: &mut TxContext
-    ): (u64, u64, bool, u64) {
-        deepbook::place_limit_order(
-            pool, 
-            client_order_id, 
-            price, 
-            quantity, 
-            self_matching_prevention, 
-            is_bid, 
-            expire_timestamp, 
-            restriction, 
-            clock, 
-            account_cap, 
-            ctx
-        )
-    }
-
-    public fun place_base_market_order<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        account_cap: &custodian::AccountCap,
-        base_coin: Coin<Base>,
-        client_order_id: u64,
-        is_bid: bool,
-        clock: &Clock,
-        ctx: &mut TxContext,
-    ) {
-        let quote_coin = coin::zero<Quote>(ctx);
-        let quantity = coin::value(&base_coin);
-        place_market_order(
-            pool,
-            account_cap,
-            client_order_id,
-            quantity,
-            is_bid,
-            base_coin,
-            quote_coin,
-            clock,
-            ctx
-        )
-    }
-
-    public fun place_quote_market_order<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        account_cap: &custodian::AccountCap,
-        quote_coin: Coin<Quote>,
-        client_order_id: u64,
-        is_bid: bool,
-        clock: &Clock,
-        ctx: &mut TxContext,
-    ) {
-        let base_coin = coin::zero<Base>(ctx);
-        let quantity = coin::value(&quote_coin);
-        place_market_order(
-            pool,
-            account_cap,
-            client_order_id,
-            quantity,
-            is_bid,
-            base_coin,
-            quote_coin,
-            clock,
-            ctx
-        )
-    }
-
-    fun place_market_order<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        account_cap: &custodian::AccountCap,
-        client_order_id: u64,
-        quantity: u64,
-        is_bid: bool,
-        base_coin: Coin<Base>,
-        quote_coin: Coin<Quote>,
-        clock: &Clock, // @0x6 hardcoded id of the Clock object
-        ctx: &mut TxContext,
-    ) {
-        let (base, quote) = deepbook::place_market_order(
-            pool, 
-            account_cap, 
-            client_order_id, 
-            quantity, 
-            is_bid, 
-            base_coin, 
-            quote_coin, 
-            clock, 
-            ctx
-        );
-        transfer::public_transfer(base, tx_context::sender(ctx));
-        transfer::public_transfer(quote, tx_context::sender(ctx));
-    }
-
-    public fun swap_exact_base_for_quote<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        client_order_id: u64,
-        account_cap: &custodian::AccountCap,
-        quantity: u64,
-        base_coin: Coin<Base>,
+    public fun book_car(
+        company: &mut CarCompany,
+        customer: &mut Customer,
+        car: &mut Car,
+        car_memo_id: ID,
         clock: &Clock,
         ctx: &mut TxContext
-    ) {
-        let quote_coin = coin::zero<Quote>(ctx);
-        let (base, quote, _) = deepbook::swap_exact_base_for_quote(
-            pool,
-            client_order_id,
-            account_cap,
-            quantity,
-            base_coin,
-            quote_coin,
-            clock,
-            ctx
-        );
-        transfer::public_transfer(base, tx_context::sender(ctx));
-        transfer::public_transfer(quote, tx_context::sender(ctx));
+    ): Coin<SUI> {
+        assert!(company.company == tx_context::sender(ctx), ENotCompany);
+        assert!(customer.company_id == object::id_from_address(company.company), ENotCustomer);
+        assert!(table::contains<ID, CarMemo>(&company.memos, car_memo_id), EInvalidCarBooking);
+        assert!(car.company == company.company, EInvalidCar);
+        assert!(car.available, EInvalidCar);
+        let car_id = &car.id;
+        let memo = table::borrow<ID, CarMemo>(&company.memos, car_memo_id);
+
+        let customer_id = object::uid_to_inner(&customer.id);
+        
+        let rental_fee = memo.rental_fee;
+        let booking_time = clock::timestamp_ms(clock);
+        let booking_record = BookingRecord {
+            id: object::new(ctx),
+            customer_id:customer_id ,
+            car_id: object::uid_to_inner(car_id),
+            customer: customer.customer,
+            company: company.company,
+            paid_fee: rental_fee,
+            rental_fee: rental_fee,
+            booking_time: booking_time
+        };
+
+        transfer::public_freeze_object(booking_record);
+        // deduct the rental fee from the customer balance and add it to the company balance
+        assert!(rental_fee <= balance::value(&customer.balance), EInsufficientFunds);
+        let amount_to_pay = coin::take(&mut customer.balance, rental_fee, ctx);
+        let same_amount_to_pay = coin::take(&mut customer.balance, rental_fee, ctx);
+        assert!(coin::value(&amount_to_pay) > 0, EInvalidCoin);
+        assert!(coin::value(&same_amount_to_pay) > 0, EInvalidCoin);
+
+        transfer::public_transfer(amount_to_pay, company.company);
+
+        same_amount_to_pay
     }
 
-    public fun swap_exact_quote_for_base<Base, Quote>(
-        pool: &mut deepbook::Pool<Base, Quote>,
-        account_cap: &custodian::AccountCap,
-        quote_coin: Coin<Quote>,
-        client_order_id: u64,
-        quantity: u64,
-        clock: &Clock,
-        ctx: &mut TxContext,
-    ) {
-        let (base, quote, _) = deepbook::swap_exact_quote_for_base(
-            pool,
-            client_order_id,
-            account_cap,
-            quantity,
-            clock,
-            quote_coin,
-            ctx
-        );
-        transfer::public_transfer(base, tx_context::sender(ctx));
-        transfer::public_transfer(quote, tx_context::sender(ctx));
+    // Customer adding funds to their account
+
+    public fun top_up_customer_balance(
+        customer: &mut Customer,
+        amount: Coin<SUI>,
+        ctx: &mut TxContext
+    ){
+        assert!(customer.customer == tx_context::sender(ctx), ENotCustomer);
+        balance::join(&mut customer.balance, coin::into_balance(amount));
     }
+
+    // add the Payment fee to the company balance
+
+    public fun top_up_company_balance(
+        company: &mut CarCompany,
+        customer: &mut Customer,
+        car: &mut Car,
+        car_memo_id: ID,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ){
+        // Can only be called by the customer
+        assert!(customer.customer == tx_context::sender(ctx), ENotCustomer);
+        let (amount_to_pay) = book_car(company, customer, car, car_memo_id, clock, ctx);
+        balance::join(&mut company.balance, coin::into_balance(amount_to_pay));
+    }
+
+    // Get the balance of the company
+
+    public fun get_company_balance(company: &CarCompany) : &Balance<SUI> {
+        &company.balance
+    }
+
+    // Company can withdraw the balance
+
+    public fun withdraw_funds(
+        company: &mut CarCompany,
+        amount: u64,
+        ctx: &mut TxContext
+    ){
+        assert!(company.company == tx_context::sender(ctx), ENotCompany);
+        assert!(amount <= balance::value(&company.balance), EInsufficientFunds);
+        let amount_to_withdraw = coin::take(&mut company.balance, amount, ctx);
+        transfer::public_transfer(amount_to_withdraw, company.company);
+    }
+    
+    // Transfer the Ownership of the car to the customer
+
+    public entry fun transfer_car_ownership(
+        customer: &Customer,
+        car: Car,
+    ){
+        transfer::transfer(car, customer.customer);
+    }
+
+
+    // Customer Returns the car ownership
+    // Set the car as available again
+
+    public fun return_car(
+        company: &mut CarCompany,
+        customer: &mut Customer,
+        car: &mut Car,
+        ctx: &mut TxContext
+    ) {
+        assert!(company.company == tx_context::sender(ctx), ENotCompany);
+        assert!(customer.company_id == object::id_from_address(company.company), ENotCustomer);
+        assert!(car.company == company.company, EInvalidCar);
+
+        car.available = true;
+    }  
 }
